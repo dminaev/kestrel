@@ -1,0 +1,26 @@
+;;;; -*- Hen -*-
+
+((egg "kestrel.egg") ; This should never change
+
+ ; List here all the files that should be bundled as part of your egg.  
+
+ (files "kestrel.meta" "kestrel.setup" "kestrel.scm")
+
+ ; Your egg's license:
+
+ (license "BSD")
+
+ ; Pick one from the list of categories (see below) for your egg and
+ ; enter it here.
+
+ (category net)
+
+ ; A list of eggs kestreld depends on.
+
+; (needs s11n)
+
+; (test-depends test)
+
+ (author "Dmitri Minaev")
+
+ (synopsis "Client interface to the Memcached protocol."))
