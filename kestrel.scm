@@ -1,7 +1,7 @@
 (module kestrel
- (k-connect k-disconnect k-set k-get k-begin k-commit k-rollback k-delete k-flush k-flush-all k-version k-stats k-shutdown k-reload k-dump-config k-dump-stats)
-  (import scheme tcp chicken extras)
-  (require-library tcp extras)
+ (k-connect k-disconnect k-set k-get k-begin k-commit k-rollback k-delete k-flush k-flush-all k-version k-stats k-shutdown k-reload k-dump-stats k-monitor)
+  (import scheme tcp chicken extras srfi-1)
+  (require-library tcp extras srfi-1)
 ;  (use extras tcp)
 
 (define-record-type k-handle
@@ -31,47 +31,60 @@
 
 (define (k-cmd0 h cmd)
   (let ((c (sprintf "~A" cmd)))
-    (printf "~A~N" c)
     (k-send h c)
     (k-rcv h)))
 (define (k-cmd1 h cmd q)
   (let ((c (sprintf "~A ~A" cmd q)))
-    (printf "~A~N" c)
     (k-send h c)
     (k-rcv h)))
 
 (define (k-set h q f x v)
   (let ((cmd (sprintf "set ~A ~A ~A ~A" q f x (string-length (sprintf "~A" v)))))
-    (printf "~A~N" cmd)
     (k-send h cmd)
     (k-send h v)
-    (k-rcv h)))
+    (let ((rc (k-rcv h)))
+      (if (string=? (last rc) "STORED")
+           v
+           #f))))
+
 
 (define (k-get h q)
-  (k-cmd1 h "get" q))
+  (let ((rc (k-cmd1 h "get" q)))
+    (if (= (length rc) 3)
+         (second rc)
+         #f)))
 
 (define (k-begin h q)
-  (k-cmd1 h "get" (string-append q "/open")))
+  (k-get h (string-append q "/open")))
 
 (define (k-commit h q)
-  (k-cmd1 h "get" (string-append q "/close")))
+  (k-get h (string-append q "/close")))
 
 (define (k-rollback h q)
-  (k-cmd1 h "get" (string-append q "/abort")))
+  (k-get h (string-append q "/abort")))
 
 (define (k-delete h q)
-  (k-cmd1 h "delete" q))
+  (let ((rc (k-cmd1 h "delete" q)))
+    (if (string=? (last rc) "DELETED")
+         #t
+         #f)))
 
 (define (k-flush h q)
-  (k-cmd1 h "flush" q))
+  (let ((rc (k-cmd1 h "flush" q)))
+    (if (string=? (last rc) "END")
+         #t
+         #f)))
 
 (define (k-flush-all h)
   (k-send h "flush_all")
-  (list (read-line (k-handle-in h))))
+  (let ((rc (read-line (k-handle-in h))))
+    (if (string=? rc "Flushed all queues.")
+         #t
+         #f)))
 
 (define (k-version h)
     (k-send h "version")
-    (list (read-line (k-handle-in h))))
+    (read-line (k-handle-in h)))
 
 (define (k-stats h)
   (k-cmd0 h "stats"))
@@ -81,22 +94,26 @@
 
 (define (k-reload h)
   (k-send h "reload")
-  (list (read-line (k-handle-in h))))
-
-(define (k-dump-config h)
-  (k-cmd0 h "dump_config"))
+  (let ((rc (read-line (k-handle-in h))))
+    (if (string=? rc "Reloaded config.")
+         #t
+         #f)))
 
 (define (k-dump-stats h)
-  (k-cmd0 h "dump_stats"))
+  (let ((rc (k-cmd0 h "dump_stats")))
+  (if (string=? (last rc) "END")
+    (drop-right rc 1)
+    #f)))
 
 (define (k-monitor h q sec callback)
   (k-send h (sprintf "monitor ~A ~A" q sec))
   (let next-line ((line (read-line (k-handle-in h))) (result '()))
+    (printf "line:~A~N" line)
     (cond 
-      ((string=? (substring line 0 4) "VALUE")
-        (callback (read-line (k-handle-in h))) 
-        (read-line (k-handle-in h))
-        (next-line (read-line (k-handle-in h)) (cons line result)))
+      ((and (> (string-length line) 5) (string=? (substring line 0 5) "VALUE"))
+        (let* ((rc (k-rcv h)) (res (callback (drop-right rc 1))))
+          (printf "next-line: ~A~N" rc)
+          (next-line (read-line (k-handle-in h)) (cons res result))))
       ((string=? line "END")
         result))))
 
